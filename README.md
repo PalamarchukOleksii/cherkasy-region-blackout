@@ -10,7 +10,21 @@ Material 3 Expressive Android home-screen widget (Jetpack Glance) for the hourly
 
 ```sh
 ./gradlew :app:installDebug        # needs Android SDK platform 37
-./gradlew :app:testDebugUnitTest   # parser + timeline tests (saved site pages as fixtures)
+./gradlew :core:test               # parser + timeline tests (saved site pages as fixtures)
+```
+
+## Web version
+
+No Android, or don't want to install anything? The same schedule is on the web:
+**https://palamarchukoleksii.github.io/cherkasy-region-blackout/**. Pick your queue and bookmark the page;
+the queue is kept in the link (e.g. `#q=3.2`).
+
+[.github/workflows/pages.yml](.github/workflows/pages.yml) rebuilds it every 15 minutes: `:web` fetches the
+schedule with the same `:core` code as the app and publishes `schedule.json` next to the static page in
+[web/site/](web/site/). One-time setup: repository **Settings → Pages → Source: GitHub Actions**.
+
+```sh
+./gradlew :web:site   # → web/build/site; preview with: python3 -m http.server -d web/build/site
 ```
 
 ## Install

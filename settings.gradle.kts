@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "cherkasy-region-blackout"
-include(":app")
+include(":app", ":core", ":web")

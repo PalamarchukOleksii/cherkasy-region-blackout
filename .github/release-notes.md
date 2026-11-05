@@ -1,19 +1,19 @@
-Віджет для головного екрана Android з графіком погодинних відключень (ГПВ) у Черкаській області.
+An Android home-screen widget with the hourly power outage schedule (ГПВ) for Cherkasy region.
 
-**Що вміє**
-- Показує, чи є світло зараз і коли наступне відключення або увімкнення для вашої черги.
-- Смуга на день: що вже минуло, що зараз і що попереду; на великому віджеті — сьогодні й завтра.
-- Бере дані напряму з сайту Черкасиобленерго й оновлюється сама кожні 30 хвилин (або кнопкою ⟳).
-- Враховує всі «Оновлено…» версії графіка за день, тому відключення, які вже відбулися, не зникають.
-- Кольори підлаштовуються під шпалери (Android 12+).
+**Features**
+- Shows whether the power is on right now and when the next outage starts or ends for your queue (черга).
+- A day bar showing what has passed, what's happening now and what's ahead; the large widget shows today and tomorrow.
+- Gets its data straight from the Cherkasyoblenergo website and updates itself every 30 minutes (or with the ⟳ button).
+- Combines every "Оновлено…" (updated) version of the day's schedule, so outages that already happened don't disappear.
+- Colors follow your wallpaper (Android 12+).
 
-**Як встановити**
-1. Завантажте файл `.apk` нижче, у розділі **Assets**.
-2. Відкрийте його на телефоні й дозвольте встановлення з цього джерела, якщо Android запитає.
-3. Відкрийте додаток, виберіть свою чергу й додайте віджет на головний екран.
+**How to install**
+1. Download the `.apk` file below, under **Assets**.
+2. Open it on your phone and allow installs from that source if Android asks.
+3. Open the app, choose your queue and add the widget to your home screen.
 
-Не знаєте свою чергу? Знайдіть її за адресою на [cherkasyoblenergo.com/off](https://www.cherkasyoblenergo.com/off).
+Don't know your queue? Look it up by address at [cherkasyoblenergo.com/off](https://www.cherkasyoblenergo.com/off).
 
-Потрібен Android 8.0 або новіший. Нові версії встановлюються поверх старої, вибрана черга зберігається.
+Requires Android 8.0 or newer. New versions install over the old one and keep your chosen queue.
 
-Додаток неофіційний і не пов'язаний із Черкасиобленерго. Він не збирає жодних даних: [політика приватності]({{REPO_URL}}/blob/main/PRIVACY.md).
+This app is unofficial and not affiliated with Cherkasyoblenergo. It collects no data: [privacy policy]({{REPO_URL}}/blob/main/PRIVACY.md).

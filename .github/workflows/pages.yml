@@ -1,0 +1,50 @@
+name: Pages
+
+# Publishes the web version: the static page in web/site plus a schedule.json fetched with the
+# same parser the app uses. Runs every 15 minutes so the page stays current.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths: ["web/**", "core/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # The previous schedule.json keeps outages that already happened when the site drops old posts.
+      - name: Build site
+        run: ./gradlew :web:site -PpreviousUrl="${{ steps.pages.outputs.base_url }}/schedule.json"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/build/site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -63,11 +63,9 @@ private class StatusText(val title: String, val label: String, val time: String?
 
 private fun textFor(status: PowerStatus) = when (status) {
     is PowerStatus.Off -> StatusText("Світла немає", "Увімкнуть о", Timeline.hhmm(status.until), Timeline.isTomorrow(status.until))
-    is PowerStatus.On -> if (status.nextOff != null) {
-        StatusText("Світло є", "Відключення о", Timeline.hhmm(status.nextOff), Timeline.isTomorrow(status.nextOff))
-    } else {
-        StatusText("Світло є", "Відключень не заплановано", null, false)
-    }
+    is PowerStatus.On -> status.nextOff?.let { next ->
+        StatusText("Світло є", "Відключення о", Timeline.hhmm(next), Timeline.isTomorrow(next))
+    } ?: StatusText("Світло є", "Відключень не заплановано", null, false)
     PowerStatus.NotPublished -> StatusText("Немає графіка", "На сьогодні ще не опубліковано", null, false)
     PowerStatus.Unreadable -> StatusText("Графік незрозумілий", "Перевірте на сайті", null, false)
     PowerStatus.NoData -> StatusText("Немає даних", "Натисніть ⟳, щоб оновити", null, false)
