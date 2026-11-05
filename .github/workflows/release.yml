@@ -45,4 +45,10 @@ jobs:
         run: |
           apk="cherkasy-region-blackout-${GITHUB_REF_NAME}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$apk"
-          gh release create "$GITHUB_REF_NAME" "$apk" --title "$GITHUB_REF_NAME" --generate-notes
+          {
+            sed "s#{{REPO_URL}}#$GITHUB_SERVER_URL/$GITHUB_REPOSITORY#g" .github/release-notes.md
+            printf '\nSHA-256 `%s`: `%s`\n' "$apk" "$(sha256sum "$apk" | cut -d' ' -f1)"
+          } > "$RUNNER_TEMP/notes.md"
+          # GitHub appends its auto-generated changelog after these notes.
+          gh release create "$GITHUB_REF_NAME" "$apk" --title "Cherkasy Region Blackout $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes
