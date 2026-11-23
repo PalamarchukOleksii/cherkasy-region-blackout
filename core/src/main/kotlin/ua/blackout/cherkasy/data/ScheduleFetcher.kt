@@ -22,15 +22,48 @@ object ScheduleFetcher {
      */
     suspend fun fetch(previous: Snapshot?, userAgent: String, now: Long = System.currentTimeMillis()): Snapshot =
         withContext(Dispatchers.IO) {
-            Snapshot(fetchedAt = now, days = keepPast(previous, fetchDays(userAgent)))
+            val today = LocalDate.now(KYIV)
+            val listHtml = getText(ScheduleParser.LIST_URL, userAgent)
+            coroutineScope {
+                val days = async { fetchDays(listHtml, today, userAgent) }
+                val uman = async { fetchUman(listHtml, previous, today, userAgent) }
+                Snapshot(
+                    fetchedAt = now,
+                    days = keepPast(previous, previous?.days, days.await()),
+                    umanDays = keepPast(previous, previous?.umanDays, uman.await()),
+                )
+            }
         }
 
-    private suspend fun fetchDays(userAgent: String): List<DaySchedule> = coroutineScope {
-        val today = LocalDate.now(KYIV)
+    /**
+     * Uman's temporary schedule has no date: the newest version stays in force for today and
+     * tomorrow until it is replaced. Older versions still count for the hours they were in effect.
+     * Page 2 of the news list is only checked while a temporary schedule was in force, so the
+     * usual case costs no extra request; once it's on neither page, Uman falls back to the ГПВ.
+     */
+    private suspend fun fetchUman(listHtml: String, previous: Snapshot?, today: LocalDate, userAgent: String): List<DaySchedule> =
+        coroutineScope {
+            var paths = ScheduleParser.findUmanPosts(listHtml)
+            if (paths.isEmpty() && !previous?.umanDays.isNullOrEmpty()) {
+                paths = ScheduleParser.findUmanPosts(getText(ScheduleParser.LIST_URL + "&page=2", userAgent))
+            }
+            val versions = paths.map { path ->
+                async {
+                    val url = ScheduleParser.BASE + path
+                    ScheduleParser.parseTemporaryPost(url, getText(url, userAgent), today)
+                }
+            }.awaitAll()
+            listOf(today, today.plusDays(1)).mapNotNull { date ->
+                val inForce = versions.filter { it.date <= date.toString() }.map { it.copy(date = date.toString()) }
+                if (inForce.isEmpty()) null else Timeline.combineVersions(inForce)
+            }
+        }
+
+    private suspend fun fetchDays(listHtml: String, today: LocalDate, userAgent: String): List<DaySchedule> = coroutineScope {
         val wanted = setOf(today, today.plusDays(1))
         // Slugs can be off by a day (see ScheduleParser.dateFromTitle), so fetch a day either side
         // and keep posts by the date in their title.
-        val posts = ScheduleParser.findSchedulePosts(getText(ScheduleParser.LIST_URL, userAgent), today)
+        val posts = ScheduleParser.findSchedulePosts(listHtml, today)
             .filter { it.date in setOf(today.minusDays(1), today, today.plusDays(1)) }
         // All versions of each day, merged so outages that already happened aren't lost.
         posts.map { post ->
@@ -46,12 +79,12 @@ object ScheduleFetcher {
     }
 
     /** Fallback: carry over the past part of the previous fetch for the same day. */
-    private fun keepPast(previous: Snapshot?, days: List<DaySchedule>): List<DaySchedule> {
-        if (previous == null || previous.fetchedAt <= 0) return days
+    private fun keepPast(previous: Snapshot?, oldDays: List<DaySchedule>?, days: List<DaySchedule>): List<DaySchedule> {
+        if (previous == null || previous.fetchedAt <= 0 || oldDays == null) return days
         val fetched = Instant.ofEpochMilli(previous.fetchedAt).atZone(KYIV)
         return days.map { day ->
             // Skip cached days built from a mislabelled post (title names another date).
-            val old = previous.days.firstOrNull { it.date == day.date && titleMatches(it) } ?: return@map day
+            val old = oldDays.firstOrNull { it.date == day.date && titleMatches(it) } ?: return@map day
             val until = when {
                 fetched.toLocalDate().toString() == day.date -> fetched.hour * 60 + fetched.minute
                 fetched.toLocalDate().toString() > day.date -> 1440

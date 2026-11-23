@@ -115,4 +115,37 @@ class ScheduleParserTest {
         val todayDay = ua.blackout.cherkasy.domain.Timeline.combineVersions(all.filter { it.date == today.toString() })
         assertEquals(listOf(Interval(480, 600), Interval(720, 840), Interval(1080, 1200)), todayDay.queues["5.2"])
     }
+
+    @Test
+    fun findsUmanTemporaryPostOnly() {
+        val html = fixture("list-2026-11-17.html")
+        assertEquals(listOf("/media/tymchasovi-hrafiky-vidklyuchen-v-umanskomu-rayoni?lang=uk"), ScheduleParser.findUmanPosts(html))
+        // The temporary post isn't a dated ГПВ post, and "На Уманщині… знеструмлені" isn't a schedule.
+        val regular = ScheduleParser.findSchedulePosts(html, LocalDate.of(2026, 11, 17))
+        assertTrue(regular.none { "uman" in it.path })
+    }
+
+    @Test
+    fun parsesUmanTemporarySchedule() {
+        val day = ScheduleParser.parseTemporaryPost("u", fixture("uman-temporary-2026-11-17.html"), LocalDate.of(2026, 11, 17))
+        assertNull(day.error)
+        assertEquals("2026-11-17", day.date)
+        assertEquals("2026-11-17T08:34:17", day.publishedAt)
+        assertEquals(Area.UMAN.queues.toSet(), day.queues.keys)
+        assertEquals(listOf(Interval(360, 540), Interval(720, 900), Interval(1080, 1260)), day.queues["1.2"])
+        assertEquals(listOf(Interval(540, 720), Interval(900, 1080), Interval(1260, 1440)), day.queues["6.2"])
+    }
+
+    @Test
+    fun areaViewSwapsInUmanDaysOrFallsBack() {
+        val region = DaySchedule("2026-11-17", "r", "r", mapOf("1.2" to listOf(Interval(0, 60))))
+        val uman = DaySchedule("2026-11-17", "u", "u", mapOf("1.2" to listOf(Interval(360, 540))))
+        val snap = Snapshot(1, listOf(region), umanDays = listOf(uman))
+        assertEquals(listOf(uman), snap.forArea(Area.UMAN).days)
+        assertEquals(listOf(region), snap.forArea(Area.REGION).days)
+        val noUman = snap.copy(umanDays = emptyList())
+        assertEquals(listOf(region), noUman.forArea(Area.UMAN).days)
+        assertTrue(noUman.usesFallback(Area.UMAN))
+        assertEquals(Area.REGION, Area.of(null))
+    }
 }

@@ -80,7 +80,7 @@ internal fun StatusCard(ui: UiState, compact: Boolean, modifier: GlanceModifier)
     Column(card.padding(10.dp)) {
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Spacer(GlanceModifier.defaultWeight())
-            QueueChip(ui.queue, short = true, action = ui.openConfig, onCard = true)
+            QueueChip(ui.queue, ui.area, short = true, action = ui.openConfig, onCard = true)
         }
         Spacer(GlanceModifier.defaultWeight())
         Text(text.title, style = textStyle(look.onContainer, 14.sp, bold = true), maxLines = 1)
@@ -130,7 +130,7 @@ private fun ShapeBadge(look: StatusLook, size: Dp) {
 }
 
 @Composable
-internal fun QueueChip(queue: String, short: Boolean, action: Action, onCard: Boolean = false) {
+internal fun QueueChip(queue: String, area: ua.blackout.cherkasy.data.Area, short: Boolean, action: Action, onCard: Boolean = false) {
     Box(
         GlanceModifier
             .background(if (onCard) GlanceTheme.colors.surface else GlanceTheme.colors.secondaryContainer)
@@ -138,8 +138,15 @@ internal fun QueueChip(queue: String, short: Boolean, action: Action, onCard: Bo
             .padding(horizontal = 10.dp, vertical = 4.dp)
             .clickable(action),
     ) {
-        Text(if (short) queue else "Черга $queue", style = textStyle(if (onCard) GlanceTheme.colors.onSurface else GlanceTheme.colors.onSecondaryContainer, 12.sp, bold = true))
+        Text(queueLabel(queue, area, short), style = textStyle(if (onCard) GlanceTheme.colors.onSurface else GlanceTheme.colors.onSecondaryContainer, 12.sp, bold = true))
     }
+}
+
+/** "Черга 5.2" / "5.2"; Uman's temporary schedule is marked so it isn't mistaken for the ГПВ. */
+internal fun queueLabel(queue: String, area: ua.blackout.cherkasy.data.Area, short: Boolean): String = when {
+    area == ua.blackout.cherkasy.data.Area.UMAN -> if (short) "У $queue" else "Умань $queue"
+    short -> queue
+    else -> "Черга $queue"
 }
 
 @Composable

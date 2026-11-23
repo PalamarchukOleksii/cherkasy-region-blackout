@@ -17,7 +17,7 @@ Material 3 Expressive Android home-screen widget (Jetpack Glance) for the hourly
 
 No Android, or don't want to install anything? The same schedule is on the web:
 **https://palamarchukoleksii.github.io/cherkasy-region-blackout/**. Pick your queue and bookmark the page;
-the queue is kept in the link (e.g. `#q=3.2`).
+the queue is kept in the link (e.g. `#q=3.2`, or `#a=uman&q=3.2` for Uman district's temporary schedule).
 
 [.github/workflows/pages.yml](.github/workflows/pages.yml) rebuilds it every 15 minutes: `:web` fetches the
 schedule with the same `:core` code as the app and publishes `schedule.json` next to the static page in

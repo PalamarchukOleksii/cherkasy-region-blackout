@@ -42,6 +42,37 @@ object ScheduleParser {
         return seen.values.toList()
     }
 
+    /** "…/media/tymchasovi-hrafiky-vidklyuchen-v-umanskomu-rayoni" and its "onovleno-…" versions. */
+    private val mediaLinkRe = Regex("""href="(/media/[^"?]+)(?:\?[^"]*)?"""")
+
+    /** Paths of the Uman temporary-schedule posts on a list page (each once, in page order). */
+    fun findUmanPosts(listHtml: String): List<String> =
+        mediaLinkRe.findAll(listHtml).map { it.groupValues[1] }
+            .filter { "hrafik" in it && "uman" in it && "hpv-na-" !in it }
+            .distinct().map { "$it?lang=uk" }.toList()
+
+    /**
+     * A temporary schedule post. It has no date of its own and stays in force until replaced, so
+     * [DaySchedule.date] is the day it was published; [ScheduleFetcher] copies it onto each day.
+     */
+    fun parseTemporaryPost(sourceUrl: String, html: String, fallbackDate: LocalDate): DaySchedule {
+        val title = titleRe.find(html)?.groupValues?.get(1).orEmpty()
+        val publishedAt = publishTime(html)
+        val date = (publishedAt?.toLocalDate() ?: fallbackDate).toString()
+        val body = extractBody(html)
+            ?: return DaySchedule(date, title, sourceUrl, emptyMap(), error = "Не вдалося знайти текст графіка", publishedAt = publishedAt?.toString())
+        val text = toPlainText(body)
+        val queues = parseQueues(text)
+        return DaySchedule(
+            date = date,
+            title = title,
+            sourceUrl = sourceUrl,
+            queues = queues,
+            note = if (queues.isEmpty()) text.take(500) else null,
+            publishedAt = publishedAt?.toString(),
+        )
+    }
+
     private val nuxtDataRe = Regex("""<script[^>]*id="__NUXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
 
     /**

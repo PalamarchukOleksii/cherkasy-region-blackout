@@ -46,9 +46,12 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import ua.blackout.cherkasy.config.ConfigActivity
+import ua.blackout.cherkasy.data.Area
 import ua.blackout.cherkasy.data.KYIV
 import ua.blackout.cherkasy.data.ScheduleRepository
 import ua.blackout.cherkasy.data.Snapshot
+import ua.blackout.cherkasy.data.forArea
+import ua.blackout.cherkasy.data.usesFallback
 import ua.blackout.cherkasy.domain.PowerStatus
 import ua.blackout.cherkasy.domain.Timeline
 import java.time.Instant
@@ -58,6 +61,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 val QUEUE_KEY = stringPreferencesKey("queue")
+val AREA_KEY = stringPreferencesKey("area")
 
 class BlackoutWidget : GlanceAppWidget() {
     companion object {
@@ -75,19 +79,24 @@ class BlackoutWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val snapshots = ScheduleRepository.snapshot(context)
         val defaultQueue = QueuePrefs.default(context)
+        val defaultArea = QueuePrefs.defaultArea(context)
         provideContent {
             val snapshot by snapshots.collectAsState()
             WidgetClock.tick.collectAsState().value // recompose on every scheduled tick
             val queue = currentState(QUEUE_KEY) ?: defaultQueue
+            // Widgets placed before areas existed have no area: they keep the regional schedule.
+            val area = currentState(AREA_KEY)?.let(Area::of) ?: if (currentState(QUEUE_KEY) == null) defaultArea else Area.REGION
+            // No temporary schedule in force: the regional ГПВ is shown, and labelled as such.
+            val shown = if (snapshot?.usesFallback(area) == true) Area.REGION else area
             BlackoutGlanceTheme {
-                WidgetContent(snapshot, queue, ZonedDateTime.now(KYIV), appWidgetId)
+                WidgetContent(snapshot?.forArea(area), shown, queue, ZonedDateTime.now(KYIV), appWidgetId)
             }
         }
     }
 }
 
 @Composable
-private fun WidgetContent(snapshot: Snapshot?, queue: String, now: ZonedDateTime, appWidgetId: Int) {
+private fun WidgetContent(snapshot: Snapshot?, area: Area, queue: String, now: ZonedDateTime, appWidgetId: Int) {
     val context = LocalContext.current
     val size = LocalSize.current
     val status = Timeline.status(snapshot, queue, now)
@@ -97,7 +106,7 @@ private fun WidgetContent(snapshot: Snapshot?, queue: String, now: ZonedDateTime
             .setData(Uri.parse("blackout://widget/$appWidgetId")),
     )
     val openApp = actionStartActivity(Intent(context, ConfigActivity::class.java))
-    val ui = UiState(snapshot, queue, now, status, openConfig, openApp)
+    val ui = UiState(snapshot, area, queue, now, status, openConfig, openApp)
 
     val root = GlanceModifier.fillMaxSize()
         .appWidgetBackground()
@@ -135,7 +144,7 @@ private fun Header(ui: UiState, longTime: Boolean, queueChip: Boolean) {
         // Equal-width buttons on both sides, so the weighted text is truly centered.
         UpdatedText(ui, if (longTime) "Оновлено о " else "", GlanceModifier.defaultWeight())
         if (queueChip) {
-            QueueChip(ui.queue, short = false, action = ui.openConfig)
+            QueueChip(ui.queue, ui.area, short = false, action = ui.openConfig)
             Spacer(GlanceModifier.width(6.dp))
         }
         RefreshButton(size = 28.dp, error = ui.hasError)
@@ -143,7 +152,9 @@ private fun Header(ui: UiState, longTime: Boolean, queueChip: Boolean) {
 }
 
 internal class UiState(
+    /** Already narrowed to [area] (see forArea). */
     val snapshot: Snapshot?,
+    val area: Area,
     val queue: String,
     val now: ZonedDateTime,
     val status: PowerStatus,
@@ -188,7 +199,7 @@ private fun ColumnScope.WideLayout(ui: UiState) {
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Сьогодні", style = textStyle(GlanceTheme.colors.onSurface, 13.sp, bold = true), maxLines = 1)
         Spacer(GlanceModifier.defaultWeight())
-        QueueChip(ui.queue, short = false, action = ui.openConfig)
+        QueueChip(ui.queue, ui.area, short = false, action = ui.openConfig)
     }
     Spacer(GlanceModifier.height(6.dp))
     DayBar(Timeline.slots(Timeline.day(ui.snapshot, ui.today), ui.queue, Timeline.minuteOfDay(ui.now)), 20.dp)

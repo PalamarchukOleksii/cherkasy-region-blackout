@@ -7,6 +7,7 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import kotlinx.coroutines.flow.MutableStateFlow
+import ua.blackout.cherkasy.data.Area
 import ua.blackout.cherkasy.work.RefreshWorker
 import ua.blackout.cherkasy.work.TickScheduler
 
@@ -43,4 +44,8 @@ object QueuePrefs {
     fun default(context: Context): String = prefs(context).getString("queue", null) ?: "1.1"
 
     fun setDefault(context: Context, queue: String) = prefs(context).edit().putString("queue", queue).apply()
+
+    fun defaultArea(context: Context): Area = Area.of(prefs(context).getString("area", null))
+
+    fun setDefaultArea(context: Context, area: Area) = prefs(context).edit().putString("area", area.id).apply()
 }

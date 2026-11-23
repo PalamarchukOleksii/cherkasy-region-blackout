@@ -69,17 +69,21 @@ import androidx.glance.appwidget.updateAll
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import kotlinx.coroutines.launch
 import ua.blackout.cherkasy.R
+import ua.blackout.cherkasy.data.Area
 import ua.blackout.cherkasy.data.KYIV
 import ua.blackout.cherkasy.data.QUEUES
 import ua.blackout.cherkasy.data.ScheduleParser
 import ua.blackout.cherkasy.data.ScheduleRepository
 import ua.blackout.cherkasy.data.Snapshot
+import ua.blackout.cherkasy.data.forArea
+import ua.blackout.cherkasy.data.usesFallback
 import ua.blackout.cherkasy.domain.PowerStatus
 import ua.blackout.cherkasy.domain.Timeline
 import ua.blackout.cherkasy.widget.BlackoutWidget
 import ua.blackout.cherkasy.widget.BlackoutWidgetReceiver
 import ua.blackout.cherkasy.widget.FallbackDark
 import ua.blackout.cherkasy.widget.FallbackLight
+import ua.blackout.cherkasy.widget.AREA_KEY
 import ua.blackout.cherkasy.widget.QUEUE_KEY
 import ua.blackout.cherkasy.widget.QueuePrefs
 import ua.blackout.cherkasy.work.RefreshWorker
@@ -111,18 +115,25 @@ class ConfigActivity : ComponentActivity() {
             AppTheme {
                 val scope = rememberCoroutineScope()
                 var queue by remember { mutableStateOf(QueuePrefs.default(this)) }
+                var area by remember { mutableStateOf(QueuePrefs.defaultArea(this)) }
                 LaunchedEffect(widgetId) {
                     if (widgetMode) runCatching {
                         val glanceId = GlanceAppWidgetManager(this@ConfigActivity).getGlanceIdBy(widgetId)
-                        getAppWidgetState(this@ConfigActivity, PreferencesGlanceStateDefinition, glanceId)[QUEUE_KEY]
-                    }.getOrNull()?.let { queue = it }
+                        getAppWidgetState(this@ConfigActivity, PreferencesGlanceStateDefinition, glanceId)
+                    }.getOrNull()?.let { state ->
+                        state[QUEUE_KEY]?.let { queue = it }
+                        // A widget from before areas existed follows the regional schedule.
+                        if (state[QUEUE_KEY] != null) area = Area.of(state[AREA_KEY])
+                    }
                 }
                 ConfigScreen(
+                    area = area,
+                    onArea = { area = it; queue = queueIn(it, queue) },
                     queue = queue,
                     onQueue = { queue = it },
                     widgetMode = widgetMode,
-                    onApply = { scope.launch { apply(queue, widgetId, widgetMode) } },
-                    onPin = { scope.launch { pin(queue) } },
+                    onApply = { scope.launch { apply(area, queue, widgetId, widgetMode) } },
+                    onPin = { scope.launch { pin(area, queue) } },
                 )
             }
         }
@@ -130,13 +141,17 @@ class ConfigActivity : ComponentActivity() {
 
     private fun resultIntent(widgetId: Int) = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
 
-    private suspend fun apply(queue: String, widgetId: Int, widgetMode: Boolean) {
+    private suspend fun apply(area: Area, queue: String, widgetId: Int, widgetMode: Boolean) {
         QueuePrefs.setDefault(this, queue)
+        QueuePrefs.setDefaultArea(this, area)
         val manager = GlanceAppWidgetManager(this)
         val ids = if (widgetMode) listOf(manager.getGlanceIdBy(widgetId))
         else manager.getGlanceIds(BlackoutWidget::class.java)
         for (id in ids) {
-            updateAppWidgetState(this, id) { it[QUEUE_KEY] = queue }
+            updateAppWidgetState(this, id) {
+                it[QUEUE_KEY] = queue
+                it[AREA_KEY] = area.id
+            }
             BlackoutWidget().update(this, id)
         }
         RefreshWorker.schedulePeriodic(this)
@@ -144,13 +159,15 @@ class ConfigActivity : ComponentActivity() {
             setResult(RESULT_OK, resultIntent(widgetId))
             finish()
         } else {
-            val msg = if (ids.isEmpty()) "Черга $queue збережена" else "Віджети оновлено: черга $queue"
+            val what = if (area == Area.UMAN) "Умань, черга $queue" else "черга $queue"
+            val msg = if (ids.isEmpty()) "Збережено: $what" else "Віджети оновлено: $what"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
-    private suspend fun pin(queue: String) {
-        QueuePrefs.setDefault(this, queue) // new widgets start on the default queue
+    private suspend fun pin(area: Area, queue: String) {
+        QueuePrefs.setDefault(this, queue) // new widgets start on the default queue and area
+        QueuePrefs.setDefaultArea(this, area)
         val ok = GlanceAppWidgetManager(this).requestPinGlanceAppWidget(BlackoutWidgetReceiver::class.java)
         if (!ok) Toast.makeText(this, "Лаунчер не підтримує додавання віджетів з додатка", Toast.LENGTH_LONG).show()
     }
@@ -172,6 +189,8 @@ private fun AppTheme(content: @Composable () -> Unit) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConfigScreen(
+    area: Area,
+    onArea: (Area) -> Unit,
     queue: String,
     onQueue: (String) -> Unit,
     widgetMode: Boolean,
@@ -179,10 +198,11 @@ private fun ConfigScreen(
     onPin: () -> Unit,
 ) {
     val context = LocalContext.current
-    val snapshot by ScheduleRepository.snapshot(context).collectAsState()
+    val fullSnapshot by ScheduleRepository.snapshot(context).collectAsState()
+    val snapshot = fullSnapshot?.forArea(area)
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        val stale = snapshot?.let { System.currentTimeMillis() - it.fetchedAt > 15 * 60_000 } ?: true
+        val stale = fullSnapshot?.let { System.currentTimeMillis() - it.fetchedAt > 15 * 60_000 } ?: true
         if (stale) {
             refreshing = true
             ScheduleRepository.refresh(context)
@@ -209,11 +229,21 @@ private fun ConfigScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(20.dp))
-            StatusPreview(snapshot, queue, refreshing)
+            StatusPreview(snapshot, area, queue, refreshing)
+            Spacer(Modifier.height(24.dp))
+            Text("Ваш графік", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            AreaPicker(area, onArea)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                areaHint(area, fullSnapshot),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(24.dp))
             Text("Ваша черга", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
-            QueuePicker(queue, onQueue)
+            QueuePicker(area.queues, queue, onQueue)
             Spacer(Modifier.height(20.dp))
             DayRanges(snapshot, queue)
             Spacer(Modifier.height(28.dp))
@@ -261,7 +291,7 @@ private fun ConfigScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun StatusPreview(snapshot: Snapshot?, queue: String, refreshing: Boolean) {
+private fun StatusPreview(snapshot: Snapshot?, area: Area, queue: String, refreshing: Boolean) {
     val status = Timeline.status(snapshot, queue, ZonedDateTime.now(KYIV))
     val cs = MaterialTheme.colorScheme
     val (container, onContainer, badge, onBadge) = when (status) {
@@ -304,7 +334,9 @@ private fun StatusPreview(snapshot: Snapshot?, queue: String, refreshing: Boolea
                 }
                 Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(detail, style = MaterialTheme.typography.titleMedium)
-                Text("Черга $queue", style = MaterialTheme.typography.labelLarge, color = onContainer.copy(alpha = 0.75f))
+                Text(
+                    if (area == Area.UMAN) "Умань, черга $queue" else "Черга $queue",
+                    style = MaterialTheme.typography.labelLarge, color = onContainer.copy(alpha = 0.75f))
             }
         }
     }
@@ -321,12 +353,59 @@ private fun openLink(context: android.content.Context, url: String) {
 
 private fun timeText(min: Int) = Timeline.hhmm(min) + if (Timeline.isTomorrow(min)) " завтра" else ""
 
-/** 12 queues as 6 connected pairs (N.1 | N.2), two pairs per row. */
+/** Uman only has N.2: keep the same queue number when switching (1.1 → 1.2). */
+private fun queueIn(area: Area, queue: String): String =
+    if (queue in area.queues) queue else area.queues.firstOrNull { it.take(1) == queue.take(1) } ?: area.queues.first()
+
+private fun areaHint(area: Area, snapshot: Snapshot?): String = when {
+    area == Area.REGION -> "Графік погодинних відключень (ГПВ) для всієї області."
+    snapshot?.usesFallback(area) == true ->
+        "Тимчасовий графік для Уманського району зараз не знайдено — показуємо загальний ГПВ."
+    else -> "Тимчасовий графік для ВСП «Уманські ЕМ», Жашківської, Монастирищенської та Христинівської філій."
+}
+
+/** Region | Uman as one connected pair. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun QueuePicker(selected: String, onSelect: (String) -> Unit) {
+private fun AreaPicker(selected: Area, onSelect: (Area) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+        Area.entries.forEachIndexed { i, a ->
+            ToggleButton(
+                checked = a == selected,
+                onCheckedChange = { onSelect(a) },
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                shapes = if (i == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
+                else ButtonGroupDefaults.connectedTrailingButtonShapes(),
+            ) {
+                Text(a.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Queues as connected pairs (N.1 | N.2), two pairs per row; Uman's N.2-only list is single buttons. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun QueuePicker(queues: List<String>, selected: String, onSelect: (String) -> Unit) {
+    val paired = queues.size == QUEUES.size
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        QUEUES.chunked(4).forEach { row ->
+        if (!paired) {
+            queues.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { q ->
+                        ToggleButton(
+                            checked = q == selected,
+                            onCheckedChange = { onSelect(q) },
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                        ) {
+                            Text(q, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            return@Column
+        }
+        queues.chunked(4).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.chunked(2).forEach { pair ->
                     Row(

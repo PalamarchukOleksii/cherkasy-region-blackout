@@ -28,4 +28,29 @@ data class Snapshot(
     val fetchedAt: Long, // epoch millis of the last successful fetch
     val days: List<DaySchedule>,
     val lastError: String? = null,
+    /**
+     * Temporary individual schedule for part of Uman district (today and tomorrow), published as
+     * open-ended "Тимчасові графіки відключень в Уманському районі" posts. Empty when none is in force.
+     */
+    val umanDays: List<DaySchedule> = emptyList(),
 )
+
+/** Which schedule a user follows. Uman's temporary schedule only has the N.2 subqueues. */
+enum class Area(val id: String, val label: String, val queues: List<String>) {
+    REGION("region", "Черкаська область", QUEUES),
+    UMAN("uman", "Уманський район", QUEUES.filter { it.endsWith(".2") });
+
+    companion object {
+        fun of(id: String?): Area = entries.firstOrNull { it.id == id } ?: REGION
+    }
+}
+
+/**
+ * The snapshot as seen from [area]: for Uman, its temporary schedule replaces the regional days.
+ * Falls back to the regional ГПВ when no temporary schedule is in force (see [usesFallback]).
+ */
+fun Snapshot.forArea(area: Area): Snapshot =
+    if (area == Area.UMAN && umanDays.isNotEmpty()) copy(days = umanDays) else this
+
+/** Uman was chosen but no temporary schedule was found, so the regional ГПВ is shown instead. */
+fun Snapshot.usesFallback(area: Area): Boolean = area == Area.UMAN && umanDays.isEmpty()

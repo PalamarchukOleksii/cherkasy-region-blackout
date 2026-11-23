@@ -82,7 +82,8 @@ object Timeline {
         val midnight = now.toLocalDate().atStartOfDay(KYIV)
         val nowMin = minuteOfDay(now)
         var next = (nowMin / SLOT_MIN + 1) * SLOT_MIN
-        snapshot?.days?.forEach { d ->
+        // Both the regional and the Uman days: any widget may follow either.
+        snapshot?.let { it.days + it.umanDays }?.forEach { d ->
             val offset = when (d.date) {
                 now.toLocalDate().toString() -> 0
                 now.toLocalDate().plusDays(1).toString() -> 1440

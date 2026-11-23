@@ -5,6 +5,7 @@ An Android home-screen widget with the hourly power outage schedule (ГПВ) for
 - A day bar showing what has passed, what's happening now and what's ahead; the large widget shows today and tomorrow.
 - Gets its data straight from the Cherkasyoblenergo website and updates itself every 30 minutes (or with the ⟳ button).
 - Combines every "Оновлено…" (updated) version of the day's schedule, so outages that already happened don't disappear.
+- Supports the temporary schedule for part of Uman district (Уманські ЕМ, Жашків, Монастирище and Христинівка branches): pick "Уманський район" in the app. When no temporary schedule is in force, it falls back to the regional ГПВ.
 - Colors follow your wallpaper (Android 12+).
 
 **How to install**
