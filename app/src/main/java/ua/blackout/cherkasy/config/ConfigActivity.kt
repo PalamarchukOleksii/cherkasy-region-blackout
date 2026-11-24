@@ -202,7 +202,10 @@ private fun ConfigScreen(
     val snapshot = fullSnapshot?.forArea(area)
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        val stale = fullSnapshot?.let { System.currentTimeMillis() - it.fetchedAt > 15 * 60_000 } ?: true
+        // Also refetch right after an update: data cached by an older version may lack what the
+        // new one reads (e.g. 0.2.0 cached no Uman section).
+        val updatedAt = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
+        val stale = fullSnapshot?.let { System.currentTimeMillis() - it.fetchedAt > 15 * 60_000 || it.fetchedAt < updatedAt } ?: true
         if (stale) {
             refreshing = true
             ScheduleRepository.refresh(context)

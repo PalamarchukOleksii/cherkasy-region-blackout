@@ -37,7 +37,7 @@ data class Snapshot(
 
 /** Which schedule a user follows. Uman's temporary schedule only has the N.2 subqueues. */
 enum class Area(val id: String, val label: String, val queues: List<String>) {
-    REGION("region", "Черкаська область", QUEUES),
+    REGION("region", "Вся область", QUEUES),
     UMAN("uman", "Уманський район", QUEUES.filter { it.endsWith(".2") });
 
     companion object {

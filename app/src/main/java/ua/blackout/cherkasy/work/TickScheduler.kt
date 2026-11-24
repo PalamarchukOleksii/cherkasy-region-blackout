@@ -46,6 +46,8 @@ class TickReceiver : BroadcastReceiver() {
                 WidgetClock.tick.value = System.currentTimeMillis()
                 BlackoutWidget().updateAll(context)
                 TickScheduler.schedule(context)
+                // After an app update, refetch so widgets don't keep data the old version parsed.
+                if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) RefreshWorker.refreshNow(context)
             } finally {
                 pending.finish()
             }

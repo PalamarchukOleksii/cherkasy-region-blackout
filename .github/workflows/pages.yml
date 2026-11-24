@@ -42,7 +42,7 @@ jobs:
       - name: Build site
         run: ./gradlew :web:site -PpreviousUrl="${{ steps.pages.outputs.base_url }}/schedule.json"
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: web/build/site
 
