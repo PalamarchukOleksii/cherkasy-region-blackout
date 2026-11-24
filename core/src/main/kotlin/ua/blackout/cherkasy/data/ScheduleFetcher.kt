@@ -25,58 +25,70 @@ object ScheduleFetcher {
             val today = LocalDate.now(KYIV)
             val listHtml = getText(ScheduleParser.LIST_URL, userAgent)
             coroutineScope {
-                val days = async { fetchDays(listHtml, today, userAgent) }
-                val uman = async { fetchUman(listHtml, previous, today, userAgent) }
+                val daily = async { fetchDaily(listHtml, today, userAgent) }
+                val temporary = async { fetchTemporaryPosts(listHtml, previous, today, userAgent) }
+                val (region, umanSections) = daily.await()
                 Snapshot(
                     fetchedAt = now,
-                    days = keepPast(previous, previous?.days, days.await()),
-                    umanDays = keepPast(previous, previous?.umanDays, uman.await()),
+                    days = keepPast(previous, previous?.days, region),
+                    umanDays = keepPast(previous, previous?.umanDays, umanDays(temporary.await(), umanSections, today)),
                 )
             }
         }
 
     /**
-     * Uman's temporary schedule has no date: the newest version stays in force for today and
-     * tomorrow until it is replaced. Older versions still count for the hours they were in effect.
-     * Page 2 of the news list is only checked while a temporary schedule was in force, so the
-     * usual case costs no extra request; once it's on neither page, Uman falls back to the ГПВ.
+     * Uman district's schedule for today and tomorrow. Two sources count as versions of the same
+     * day, newest in force (see [Timeline.combineVersions]): the Uman section of a dated daily post,
+     * and the older undated "Тимчасові графіки … в Уманському районі" posts, which stay in force
+     * from the day they were published until replaced. Empty when neither exists, so Uman falls
+     * back to the regional ГПВ.
      */
-    private suspend fun fetchUman(listHtml: String, previous: Snapshot?, today: LocalDate, userAgent: String): List<DaySchedule> =
+    fun umanDays(temporary: List<DaySchedule>, sections: List<DaySchedule>, today: LocalDate): List<DaySchedule> =
+        listOf(today, today.plusDays(1)).mapNotNull { date ->
+            val iso = date.toString()
+            val inForce = temporary.filter { it.date <= iso }.map { it.copy(date = iso) } + sections.filter { it.date == iso }
+            if (inForce.isEmpty()) null else Timeline.combineVersions(inForce)
+        }
+
+    /**
+     * Undated Uman posts. Page 2 of the news list is only checked while such a post was in force,
+     * so the usual case costs no extra request.
+     */
+    private suspend fun fetchTemporaryPosts(listHtml: String, previous: Snapshot?, today: LocalDate, userAgent: String): List<DaySchedule> =
         coroutineScope {
             var paths = ScheduleParser.findUmanPosts(listHtml)
-            if (paths.isEmpty() && !previous?.umanDays.isNullOrEmpty()) {
+            if (paths.isEmpty() && previous?.umanDays.orEmpty().any { ScheduleParser.isUmanPost(it.sourceUrl) }) {
                 paths = ScheduleParser.findUmanPosts(getText(ScheduleParser.LIST_URL + "&page=2", userAgent))
             }
-            val versions = paths.map { path ->
+            paths.map { path ->
                 async {
                     val url = ScheduleParser.BASE + path
                     ScheduleParser.parseTemporaryPost(url, getText(url, userAgent), today)
                 }
             }.awaitAll()
-            listOf(today, today.plusDays(1)).mapNotNull { date ->
-                val inForce = versions.filter { it.date <= date.toString() }.map { it.copy(date = date.toString()) }
-                if (inForce.isEmpty()) null else Timeline.combineVersions(inForce)
-            }
         }
 
-    private suspend fun fetchDays(listHtml: String, today: LocalDate, userAgent: String): List<DaySchedule> = coroutineScope {
-        val wanted = setOf(today, today.plusDays(1))
-        // Slugs can be off by a day (see ScheduleParser.dateFromTitle), so fetch a day either side
-        // and keep posts by the date in their title.
-        val posts = ScheduleParser.findSchedulePosts(listHtml, today)
-            .filter { it.date in setOf(today.minusDays(1), today, today.plusDays(1)) }
-        // All versions of each day, merged so outages that already happened aren't lost.
-        posts.map { post ->
-            async {
-                val url = ScheduleParser.BASE + post.path
-                ScheduleParser.parsePost(post.date, url, getText(url, userAgent))
-            }
-        }.awaitAll()
-            .filter { LocalDate.parse(it.date) in wanted }
-            .groupBy { it.date }
-            .map { (_, versions) -> Timeline.combineVersions(versions) }
-            .sortedBy { it.date }
-    }
+    /** Today's and tomorrow's daily posts: the regional days, and the Uman sections they carry. */
+    private suspend fun fetchDaily(listHtml: String, today: LocalDate, userAgent: String): Pair<List<DaySchedule>, List<DaySchedule>> =
+        coroutineScope {
+            val wanted = setOf(today, today.plusDays(1))
+            // Slugs can be off by a day (see ScheduleParser.dateFromTitle), so fetch a day either side
+            // and keep posts by the date in their title.
+            val posts = ScheduleParser.findSchedulePosts(listHtml, today)
+                .filter { it.date in setOf(today.minusDays(1), today, today.plusDays(1)) }
+            // All versions of each day, merged so outages that already happened aren't lost.
+            val parsed = posts.map { post ->
+                async {
+                    val url = ScheduleParser.BASE + post.path
+                    ScheduleParser.parsePostSections(post.date, url, getText(url, userAgent))
+                }
+            }.awaitAll().filter { LocalDate.parse(it.region.date) in wanted }
+            val region = parsed.map { it.region }
+                .groupBy { it.date }
+                .map { (_, versions) -> Timeline.combineVersions(versions) }
+                .sortedBy { it.date }
+            region to parsed.mapNotNull { it.uman }
+        }
 
     /** Fallback: carry over the past part of the previous fetch for the same day. */
     private fun keepPast(previous: Snapshot?, oldDays: List<DaySchedule>?, days: List<DaySchedule>): List<DaySchedule> {

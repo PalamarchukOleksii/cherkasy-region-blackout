@@ -148,4 +148,38 @@ class ScheduleParserTest {
         assertTrue(noUman.usesFallback(Area.UMAN))
         assertEquals(Area.REGION, Area.of(null))
     }
+
+    @Test
+    fun dailyPostSplitsRegionalAndUmanSections() {
+        val post = ScheduleParser.parsePostSections(LocalDate.of(2026, 11, 24), "x", fixture("post-2026-11-24-with-uman.html"))
+        // Regional rows stop at the Uman heading: 6.2 is the region's, not Uman's 03:00–06:00…
+        assertEquals(QUEUES.toSet(), post.region.queues.keys)
+        assertEquals(listOf(Interval(660, 780), Interval(900, 1140), Interval(1260, 1380)), post.region.queues["6.2"])
+        val uman = post.uman!!
+        assertEquals("2026-11-24", uman.date)
+        assertEquals("2026-11-23T16:48:42", uman.publishedAt)
+        assertEquals(Area.UMAN.queues.toSet(), uman.queues.keys)
+        assertEquals(listOf(Interval(180, 360), Interval(540, 720), Interval(900, 1080), Interval(1260, 1440)), uman.queues["4.2"])
+        assertEquals(listOf(Interval(0, 180), Interval(360, 540), Interval(720, 900), Interval(1080, 1260)), uman.queues["1.2"])
+    }
+
+    @Test
+    fun postWithoutUmanSectionHasNone() {
+        val post = ScheduleParser.parsePostSections(today, "x", fixture("post-2026-10-18.html"))
+        assertNull(post.uman)
+        assertEquals(ScheduleParser.parsePost(today, "x", fixture("post-2026-10-18.html")), post.region)
+    }
+
+    @Test
+    fun umanDaysCombineTemporaryPostsAndDailySections() {
+        val today = LocalDate.of(2026, 11, 24)
+        val temporary = DaySchedule("2026-11-17", "t", "t", mapOf("1.2" to listOf(Interval(0, 60))), publishedAt = "2026-11-17T08:00")
+        val section = DaySchedule("2026-11-24", "s", "s", mapOf("1.2" to listOf(Interval(600, 660))), publishedAt = "2026-11-23T16:48")
+        val days = ScheduleFetcher.umanDays(listOf(temporary), listOf(section), today)
+        // Today: the newer dated section replaces the old temporary post. Tomorrow: only the post is known.
+        assertEquals(listOf("2026-11-24", "2026-11-25"), days.map { it.date })
+        assertEquals(listOf(Interval(600, 660)), days[0].queues["1.2"])
+        assertEquals(listOf(Interval(0, 60)), days[1].queues["1.2"])
+        assertTrue(ScheduleFetcher.umanDays(emptyList(), emptyList(), today).isEmpty())
+    }
 }

@@ -48,8 +48,12 @@ object ScheduleParser {
     /** Paths of the Uman temporary-schedule posts on a list page (each once, in page order). */
     fun findUmanPosts(listHtml: String): List<String> =
         mediaLinkRe.findAll(listHtml).map { it.groupValues[1] }
-            .filter { "hrafik" in it && "uman" in it && "hpv-na-" !in it }
+            .filter(::isUmanPost)
             .distinct().map { "$it?lang=uk" }.toList()
+
+    /** An undated Uman temporary-schedule post (not a daily ГПВ post with an Uman section). */
+    fun isUmanPost(pathOrUrl: String): Boolean =
+        "hrafik" in pathOrUrl && "uman" in pathOrUrl && "hpv-na-" !in pathOrUrl
 
     /**
      * A temporary schedule post. It has no date of its own and stays in force until replaced, so
@@ -153,24 +157,48 @@ object ScheduleParser {
             .minByOrNull { kotlin.math.abs(it.toEpochDay() - near.toEpochDay()) }
     }
 
-    /** [slugDate] is only a hint; the title's date wins when it has one. */
-    fun parsePost(slugDate: LocalDate, sourceUrl: String, html: String): DaySchedule {
+    /** A daily post's regional ГПВ and, when the post has one, Uman district's own section. */
+    data class PostSections(val region: DaySchedule, val uman: DaySchedule?)
+
+    /**
+     * Since late November 2026 the daily post carries Uman district's temporary schedule as a
+     * second section ("Тимчасові індивідуальні графіки … для споживачів ВСП «Уманські …»").
+     * Only a heading after the first queue row counts: the intro sentence mentions it too.
+     */
+    private val umanSectionRe = Regex("""(?imu)^[^\n]*тимчасов\S*\s+(?:індивідуальн\S*\s+)?графік""")
+
+    /** Splits a post's text into the regional part and Uman's section (null when there is none). */
+    fun splitUmanSection(text: String): Pair<String, String?> {
+        val firstRow = lineRe.find(text)?.range?.first ?: return text to null
+        val heading = umanSectionRe.find(text, firstRow) ?: return text to null
+        return text.substring(0, heading.range.first) to text.substring(heading.range.first)
+    }
+
+    /** [slugDate] is only a hint; the title's date wins when it has one. Regional rows only. */
+    fun parsePost(slugDate: LocalDate, sourceUrl: String, html: String): DaySchedule =
+        parsePostSections(slugDate, sourceUrl, html).region
+
+    fun parsePostSections(slugDate: LocalDate, sourceUrl: String, html: String): PostSections {
         val title = titleRe.find(html)?.groupValues?.get(1).orEmpty()
         val date = dateFromTitle(title, slugDate) ?: slugDate
+        val publishedAt = publishTime(html)?.toString()
         val body = extractBody(html)
-            ?: return DaySchedule(
-                date.toString(), title, sourceUrl, emptyMap(),
-                error = "Не вдалося знайти текст графіка", publishedAt = publishTime(html)?.toString(),
+            ?: return PostSections(
+                DaySchedule(date.toString(), title, sourceUrl, emptyMap(), error = "Не вдалося знайти текст графіка", publishedAt = publishedAt),
+                null,
             )
-        val text = toPlainText(body)
-        val queues = parseQueues(text)
-        return DaySchedule(
-            date = date.toString(),
-            title = title,
-            sourceUrl = sourceUrl,
-            queues = queues,
-            note = if (queues.isEmpty()) text.take(500) else null,
-            publishedAt = publishTime(html)?.toString(),
-        )
+        val (regionText, umanText) = splitUmanSection(toPlainText(body))
+        fun day(text: String): DaySchedule {
+            val queues = parseQueues(text)
+            return DaySchedule(
+                date = date.toString(),
+                title = title,
+                sourceUrl = sourceUrl,
+                queues = queues,
+                note = if (queues.isEmpty()) text.take(500) else null,
+                publishedAt = publishedAt,
+            )
+        }
+        return PostSections(day(regionText), umanText?.let(::day)?.takeIf { it.queues.isNotEmpty() })
     }
 }
